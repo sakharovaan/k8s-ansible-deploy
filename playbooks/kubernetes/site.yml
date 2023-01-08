@@ -1,0 +1,26 @@
+---
+
+- hosts: "kube-*"
+  gather_facts: False
+  #serial: 1
+  max_fail_percentage: 0
+  #strategy: linear
+  tasks:
+    - name: Install python for Ansible
+      raw: test -e /usr/bin/python3 || (apt -y update && apt install -y python3) || (yum -y update && yum install -y python3)
+      become: True
+      changed_when: False
+
+- hosts: "kube-*"
+  gather_facts: False
+  #serial: 1
+  max_fail_percentage: 0
+  tasks:
+    - include_role:
+        name: system
+      tags:
+        - always
+    - include_role:
+        name: kubernetes
+      tags:
+        - always

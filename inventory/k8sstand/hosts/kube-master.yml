@@ -1,0 +1,13 @@
+---
+
+all:
+  hosts:
+    kube-master:
+      ansible_become: yes
+      ansible_host: 10.10.0.10
+      hostname: kube-master
+      kubernetes_apiserver_advertise_address: 10.10.0.10
+      kubernetes_node_taints:
+        - key: node-role.kubernetes.io/master
+          effect: NoSchedule
+          

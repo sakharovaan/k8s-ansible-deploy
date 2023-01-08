@@ -1,0 +1,4 @@
+---
+
+sshd_port: '22'
+hosts_entries: []

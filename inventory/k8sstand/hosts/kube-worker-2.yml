@@ -1,0 +1,10 @@
+---
+
+all:
+  hosts:
+    kube-worker-2:
+      ansible_become: yes
+      ansible_host: 10.10.0.12
+      hostname: kube-worker-2
+      kubernetes_node_labels:
+        node-role.kubernetes.io/worker:

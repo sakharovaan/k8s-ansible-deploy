@@ -1,0 +1,15 @@
+---
+
+galaxy_info:
+  author: sakharovaan
+  description: System role
+  min_ansible_version: 2.5
+
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+
+  galaxy_tags: []
+
+dependencies: []

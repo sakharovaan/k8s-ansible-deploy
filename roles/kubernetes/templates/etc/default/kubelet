@@ -1,0 +1,1 @@
+KUBELET_EXTRA_ARGS=--cgroup-driver=systemd --v=0 --logtostderr=false {{ kubelet_args | d() }} --allowed-unsafe-sysctls net.ipv4.ip_unprivileged_port_start

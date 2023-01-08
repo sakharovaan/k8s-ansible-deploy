@@ -1,0 +1,5 @@
+---
+
+kubernetes_master:
+  hosts:
+    kube-master:

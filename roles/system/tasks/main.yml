@@ -1,0 +1,65 @@
+---
+
+- name: Collect facts
+  setup:
+    gather_subset:
+      - '!hardware'
+  tags:
+    - always
+
+- name: Install prereq packages
+  apt:
+    state: present
+    update_cache: no
+    pkg:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg-agent
+      - software-properties-common
+      - net-tools
+      - iotop
+      - iftop
+      - linux-tools-common
+      - linux-tools-generic
+      - ncdu
+      - traceroute
+      - vim
+  when: ansible_distribution == 'Ubuntu'
+
+- name: Install additional apt packages
+  apt:
+    state: present
+    update_cache: no
+    pkg: "{{ additional_apt_packages }}"
+  when:
+    - ansible_distribution == 'Ubuntu'
+    - additional_apt_packages is defined
+    - additional_apt_packages
+
+- name: Remove packages
+  apt:
+    state: absent
+    pkg:
+      - unattended-upgrades
+      - apport
+      - snapd
+  when: ansible_distribution == 'Ubuntu'
+
+- name: Disable unattended upgrades in ubuntu 20
+  template:
+    src: '{{ item }}'
+    dest: '/{{ item }}'
+  loop:
+    - "etc/apt/apt.conf.d/20auto-upgrades"
+  when: ansible_distribution == 'Ubuntu' and ansible_distribution_release == 'focal'
+
+- name: Blacklist floppy
+  template:
+    src: '{{ item }}'
+    dest: '/{{ item }}'
+  loop:
+    - "etc/modprobe.d/blacklist-floppy.conf"
+  notify:
+    - update initramfs
+

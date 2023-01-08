@@ -1,0 +1,63 @@
+kind: InitConfiguration
+apiVersion: kubeadm.k8s.io/v1beta2
+nodeRegistration:
+  name: "{{ hostname }}"
+localAPIEndpoint:
+  advertiseAddress: "{{ kubernetes_apiserver_advertise_address | default(ansible_default_ipv4.address, true) }}"
+  bindPort: 6443
+---
+
+apiVersion: kubeadm.k8s.io/v1beta2
+kind: ClusterConfiguration
+controlPlaneEndpoint: 127.0.0.1:5443
+controllerManager:
+  extraArgs:
+    "allocate-node-cidrs": "true"
+    "cluster-cidr": "{{ kubernetes_pod_subnet | d("10.244.0.0/16") }}"
+    "node-cidr-mask-size": "24"
+    "service-cluster-ip-range": "{{ kubernetes_service_subnet | d("10.96.0.0/12") }}"
+    bind-address: "0.0.0.0"
+scheduler:
+  extraArgs:
+    bind-address: "0.0.0.0"
+apiServer:
+  extraArgs:
+    http2-max-streams-per-connection: "1000"
+    enable-admission-plugins: "PodTolerationRestriction,PodNodeSelector,NodeRestriction"
+    service-cluster-ip-range: "{{ kubernetes_service_subnet | d("10.96.0.0/12") }}"
+    target-ram-mb: "{{ kubernetes_apiserver_target_ram_mb }}"
+  certSANs:
+{% for san in cert_sans %}
+  - {{ san }}
+{% endfor %}
+etcd:
+  local:
+    dataDir: /var/lib/etcd
+{% if etcd_cert_sans %}
+    serverCertSANs:
+    {% for san in etcd_cert_sans %}
+      - {{ san }}
+    {% endfor %}
+{% endif %}
+networking:
+  dnsDomain: {{ kubernetes_dns_domain | d("cluster.local") }}
+  podSubnet: {{ kubernetes_pod_subnet | d("10.244.0.0/16") }}
+  serviceSubnet: {{ kubernetes_service_subnet | d("10.96.0.0/12") }}
+kubernetesVersion: v{{ kubernetes_version }}
+---
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+mode: iptables
+metricsBindAddress: 0.0.0.0:10249
+---
+kind: KubeletConfiguration
+apiVersion: kubelet.config.k8s.io/v1beta1
+cgroupDriver: systemd
+cpuManagerPolicy: static
+evictionMaxPodGracePeriod: 30
+systemReserved:
+  cpu: "100m"
+  memory: "200Mi"
+kubeReserved:
+  cpu: "100m"
+  memory: "200Mi"

@@ -1,0 +1,7 @@
+---
+
+kubernetes_node:
+  hosts:
+    kube-worker-1:
+    kube-worker-2:
+

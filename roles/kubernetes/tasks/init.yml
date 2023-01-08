@@ -1,0 +1,92 @@
+---
+
+- name: Install system packages updates
+  apt:
+    upgrade: dist
+    update_cache: yes
+    autoclean: yes
+    autoremove: yes
+  notify: reboot node
+  when:
+    - kubernetes_node is not defined or kubernetes_node != "molecule" # if we restart vagrant, it clears shared folders
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - kube_master_init
+
+- name: Reboot if packages upgraded
+  meta: flush_handlers
+
+- name: Reset Kubernetes cluster state
+  command: "/usr/bin/kubeadm reset --force"
+  changed_when: false
+  tags:
+    - kube_master_init
+
+- name: Copy clusterconfig info
+  template:
+    src: '{{ item }}'
+    dest: '/{{ item }}'
+  loop:
+    - "etc/kubernetes/clusterconfig.yaml"
+  tags:
+    - kube_master_init
+
+- name: Init new Kubernetes cluster on master
+  command: >
+    /usr/bin/kubeadm init
+    --upload-certs
+    --config /etc/kubernetes/clusterconfig.yaml
+    --skip-phases=addon/coredns
+  changed_when: false
+  tags:
+    - kube_master_init
+
+- name: Install coredns
+  command: >
+    /usr/bin/kubeadm init
+    --service-cidr={{ kubernetes_service_subnet | d("10.96.0.0/12") }}
+    --service-dns-domain={{ kubernetes_dns_domain | d("cluster.local") }}
+    phase addon coredns
+  changed_when: false
+  tags:
+    - kube_master_init
+
+- name: Ensure .kube directory exists.
+  file:
+    path: ~/.kube
+    state: directory
+  tags:
+    - kube_master_init
+
+- name: Symlink the kubectl admin.conf to ~/.kube/conf
+  file:
+    src: /etc/kubernetes/admin.conf
+    dest: ~/.kube/config
+    state: link
+  tags:
+    - kube_master_init
+
+- name: Check node created on existing master
+  delegate_to: "{{ groups['kubernetes_master'][0] }}"
+  command: >
+    kubectl get nodes
+    --kubeconfig='{{ kubernetes_kubectl_config | default("") | expanduser }}'
+    -o jsonpath="{.items[*].metadata.name}"
+  register: node_list
+  failed_when: "hostname not in node_list.stdout.split(' ')"
+  changed_when: false
+  tags:
+    - kube_master_init
+
+- name: Create cluster joined flag
+  file:
+    state: touch
+    path: "/etc/kubernetes/ansible_master_cluster_joined"
+  tags:
+    - kube_master_init
+
+- name: Echo admin certificate
+  shell: "cat /etc/kubernetes/admin.conf"
+  ignore_errors: yes
+  tags:
+    - kube_master_init

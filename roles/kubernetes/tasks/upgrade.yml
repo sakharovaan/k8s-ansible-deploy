@@ -1,0 +1,180 @@
+---
+
+- name: Drain node
+  shell: >
+    kubectl drain {{ hostname }}
+    --ignore-daemonsets
+    --force
+    --delete-local-data
+    --kubeconfig='{{ kubernetes_kubectl_config | default("") | expanduser }}'
+    --server='{{ kubernetes_kubectl_host | default("") }}'
+  delegate_to: "{{ groups['kubernetes_master'][0] }}"
+  changed_when: false
+  tags:
+    - kube_master_upgrade_main
+    - kube_master_upgrade_secondary
+    - kube_node_upgrade
+
+- name: Update package cache
+  apt:
+    update_cache: yes
+    autoclean: yes
+    autoremove: yes
+  when: 
+    - kubernetes_node is not defined or kubernetes_node != "molecule" # if we restart vagrant, it clears shared folders
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - kube_master_upgrade_main
+    - kube_master_upgrade_secondary
+    - kube_node_upgrade
+
+- name: Install apt packages updates
+  apt:
+    name: "*"
+    state: latest
+  tags:
+    - kube_master_upgrade_main
+    - kube_master_upgrade_secondary
+    - kube_node_upgrade
+  notify: reboot node
+  when: ansible_distribution == 'Ubuntu'
+
+- name: Install rpm packages updates
+  dnf:
+    update_cache: yes
+    enablerepo: elrepo-kernel
+    name: '*'
+    state: latest
+  tags:
+    - kube_master_upgrade_main
+    - kube_master_upgrade_secondary
+    - kube_node_upgrade
+  notify: reboot node
+  when: ansible_distribution == 'CentOS'
+
+
+- name: Reboot if packages upgraded
+  meta: flush_handlers
+
+- name: Unhold Kubernetes packages
+  dpkg_selections:
+    name: '{{ item }}'
+    selection: install
+  with_items:
+    - '{{ kubernetes_hold_packages }}'
+  tags:
+    - kube_master_upgrade_main
+    - kube_master_upgrade_secondary
+    - kube_node_upgrade
+  when: ansible_distribution == 'Ubuntu'
+
+- name: Unhold Kubernetes packages
+  command: "dnf versionlock delete kubectl kubelet kubeadm containerd.io"
+  when: ansible_distribution == 'CentOS'
+
+- name: Install kubeadm package (apt)
+  apt:
+    state: present
+    update_cache: yes
+    pkg:
+      - kubeadm={{ kubernetes_upgrade_package_version }}
+  tags:
+    - kube_master_upgrade_main
+    - kube_master_upgrade_secondary
+    - kube_node_upgrade
+  when: ansible_distribution == 'Ubuntu'
+
+- name: Install kubeadm package (dnf)
+  dnf:
+    state: present
+    update_cache: yes
+    pkg: kubeadm-{{ kubernetes_upgrade_package_version }}
+  tags:
+    - kube_master_upgrade_main
+    - kube_master_upgrade_secondary
+    - kube_node_upgrade
+  when: ansible_distribution == 'CentOS'
+
+- name: Run upgrade plan
+  command: "/usr/bin/kubeadm upgrade plan"
+  changed_when: false
+  tags:
+    - kube_master_upgrade_main
+
+- name: Run upgrade apply
+  shell: "/usr/bin/kubeadm upgrade apply -y v{{ kubernetes_upgrade_version }} > /var/log/kube_upgrade.log 2>&1"
+  changed_when: false
+  tags:
+    - kube_master_upgrade_main
+
+- name: Run upgrade node
+  shell: "/usr/bin/kubeadm upgrade node > /var/log/kube_upgrade.log 2>&1"
+  changed_when: false
+  tags:
+    - kube_master_upgrade_secondary
+    - kube_node_upgrade
+
+- name: Echo upgrade logs
+  command: "/bin/cat /var/log/kube_upgrade.log"
+  failed_when: false
+  changed_when: false
+  tags:
+    - kube_master_upgrade_main
+    - kube_master_upgrade_secondary
+    - kube_node_upgrade
+
+- name: Update kubelet and kubectl versions (apt)
+  apt:
+    state: present
+    update_cache: yes
+    pkg:
+      - kubelet={{ kubernetes_upgrade_package_version }}
+      - kubectl={{ kubernetes_upgrade_package_version }}
+  notify:
+    - restart kubelet
+  tags:
+    - kube_master_upgrade_main
+    - kube_master_upgrade_secondary
+    - kube_node_upgrade
+  when: ansible_distribution == 'Ubuntu'
+
+- name: Update kubelet and kubectl versions (dnf)
+  dnf:
+    state: present
+    update_cache: yes
+    name: kubelet-{{ kubernetes_upgrade_package_version }},kubectl-{{ kubernetes_upgrade_package_version }}
+  notify:
+    - restart kubelet
+  tags:
+    - kube_master_upgrade_main
+    - kube_master_upgrade_secondary
+    - kube_node_upgrade
+  when: ansible_distribution == 'CentOS'
+
+- name: Hold Kubernetes packages
+  dpkg_selections:
+    name: '{{ item }}'
+    selection: hold
+  with_items:
+    - '{{ kubernetes_hold_packages }}'
+  tags:
+    - kube_master_upgrade_main
+    - kube_master_upgrade_secondary
+    - kube_node_upgrade
+  when: ansible_distribution == 'Ubuntu'
+
+- name: Hold Kubernetes packages
+  command: "dnf versionlock add kubectl kubelet kubeadm containerd.io"
+  when: ansible_distribution == 'CentOS'
+
+- name: Uncordon node
+  command: >
+    kubectl uncordon {{ hostname }}
+    --kubeconfig='{{ kubernetes_kubectl_config | default("") | expanduser }}'
+    --server='{{ kubernetes_kubectl_host | default("") }}'
+  delegate_to: "{{ groups['kubernetes_master'][0] }}"
+  changed_when: false
+  tags:
+    - kube_master_upgrade_main
+    - kube_master_upgrade_secondary
+    - kube_node_upgrade

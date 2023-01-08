@@ -1,0 +1,113 @@
+---
+
+- name: Install system packages updates
+  apt:
+    upgrade: dist
+    update_cache: yes
+    autoclean: yes
+    autoremove: yes
+  notify: reboot node
+  when: 
+    - kubernetes_node is not defined or kubernetes_node != "molecule" # if we restart vagrant, it clears shared folders
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - kube_master_join
+    - kube_node_join
+
+- name: Reboot if packages upgraded
+  meta: flush_handlers
+
+- name: Reset Kubernetes cluster state
+  command: "/usr/bin/kubeadm reset --force"
+  changed_when: false
+  tags:
+    - kube_master_join
+    - kube_node_join
+
+- name: Generate kubectl token on existing master
+  command: "/usr/bin/kubeadm token generate"
+  delegate_to: "{{ groups['kubernetes_master'][0] }}"
+  changed_when: false
+  register: kube_token
+  tags:
+    - kube_master_join
+    - kube_node_join
+
+- name: Generate kubectl cert on existing master
+  command: "/usr/bin/kubeadm alpha certs certificate-key"
+  delegate_to: "{{ groups['kubernetes_master'][0] }}"
+  changed_when: false
+  register: kube_certs_key
+  tags:
+    - kube_master_join
+
+- name: Reupload certs on existing master
+  command: >
+    /usr/bin/kubeadm init phase upload-certs
+    --upload-certs
+    --certificate-key {{ kube_certs_key.stdout }}
+  delegate_to: "{{ groups['kubernetes_master'][0] }}"
+  changed_when: false
+  tags:
+    - kube_master_join
+
+- name: Create kubectl token on existing master
+  command: >
+    /usr/bin/kubeadm token create {{ kube_token.stdout }}
+    --ttl 10m
+    --description {{ hostname }}
+  delegate_to: "{{ groups['kubernetes_master'][0] }}"
+  changed_when: false
+  tags:
+    - kube_master_join
+    - kube_node_join
+
+- name: Join to Kubernetes cluster on new master
+  command: >
+    /usr/bin/kubeadm join 127.0.0.1:5443
+    --token {{ kube_token.stdout }}
+    --discovery-token-unsafe-skip-ca-verification
+    --node-name {{ hostname }}
+    --control-plane
+    --certificate-key {{ kube_certs_key.stdout }}
+    --apiserver-advertise-address={{ kubernetes_apiserver_advertise_address | default(ansible_default_ipv4.address, true) }}
+  changed_when: false
+  tags:
+    - kube_master_join
+
+- name: Join to Kubernetes cluster on node
+  command: >
+    /usr/bin/kubeadm join 127.0.0.1:5443
+    --token {{ kube_token.stdout }}
+    --discovery-token-unsafe-skip-ca-verification
+    --node-name {{ hostname }}
+  changed_when: false
+  tags:
+    - kube_node_join
+
+- name: Check node created on existing master
+  delegate_to: "{{ groups['kubernetes_master'][0] }}"
+  command: >
+    kubectl get nodes
+    --kubeconfig='{{ kubernetes_kubectl_config | default("") | expanduser }}'
+    -o jsonpath="{.items[*].metadata.name}"
+  register: node_list
+  failed_when: "hostname not in node_list.stdout.split(' ')"
+  changed_when: false
+  tags:
+    - kube_master_join
+    - kube_node_join
+
+- name: Create cluster joined flag
+  file:
+    state: touch
+    path: "/etc/kubernetes/ansible_master_cluster_joined"
+  tags:
+    - kube_master_join
+
+- name: Create cluster joined flag
+  file:
+    state: touch
+    path: "/etc/kubernetes/ansible_node_cluster_joined"
+  tags:
+    - kube_node_join

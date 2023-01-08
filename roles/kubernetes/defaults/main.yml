@@ -1,0 +1,39 @@
+---
+
+# current kubernetes installation
+kubernetes_version: "1.18.8"
+kubernetes_package_version: "1.18.8-00"
+
+# if upgrading, change this to new version (to safely update only required packages)
+# after upgrading everything, change versions above too
+kubernetes_upgrade_version: "1.18.8"
+kubernetes_upgrade_package_version: "1.18.8-00"
+
+kubernetes_packages:
+  - cri-o
+  - cri-o-runc
+  - kubectl={{ kubernetes_package_version }}
+  - kubelet={{ kubernetes_package_version }}
+  - kubeadm={{ kubernetes_package_version }}
+
+kubernetes_hold_packages:
+  - kubelet
+  - kubeadm
+  - kubectl
+
+apt_key_urls:
+  - 'https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/1.24:/1.24.2/xUbuntu_20.04/Release.key'
+  - 'https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/xUbuntu_20.04/Release.key'
+  - 'https://packages.cloud.google.com/apt/doc/apt-key.gpg'
+
+apt_repositories:
+  - filename: docker
+    repo: 'deb https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/xUbuntu_20.04/ /'
+  - filename: crio
+    repo: 'deb https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/1.24:/1.24.2/xUbuntu_20.04/ /'
+  - filename: kubernetes
+    repo: 'deb [arch=amd64] https://apt.kubernetes.io/ kubernetes-xenial main'
+    
+inventory_node_labels: []
+inventory_node_taints: []
+etcd_cert_sans: [] 

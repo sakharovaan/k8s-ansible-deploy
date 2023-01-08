@@ -1,0 +1,268 @@
+---
+
+- name: Collect facts
+  setup:
+    gather_subset:
+      - '!hardware'
+  tags:
+    - always
+
+- name: 'Set hostname'
+  hostname:
+    name: '{{ hostname }}'
+  tags:
+    - always
+
+- name: add myself to /etc/hosts
+  lineinfile:
+    dest: /etc/hosts
+    regexp: '^127\.0\.0\.1[ \t]+localhost'
+    line: '127.0.0.1 localhost {{ hostname }}'
+    state: present
+  tags:
+    - always
+
+
+- name: Install prereq packages on Ubuntu
+  apt:
+    state: present
+    update_cache: no
+    pkg:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg-agent
+      - software-properties-common
+      - haproxy
+      - lvm2
+      - iptables-persistent
+      - wireguard
+      - wireguard-tools
+  when: ansible_distribution == 'Ubuntu'
+
+
+- name: Modprobe req modules
+  modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - overlay
+    - br_netfilter
+
+- name: Disable SWAP
+  command: "swapoff -a"
+  changed_when: no
+
+- name: Remove Swap from fstab
+  mount:
+    name: none
+    fstype: swap
+    opts: sw
+    state: absent
+
+- name: Delete swapfiles
+  file:
+    path: '/{{ item }}'
+    state: absent
+  loop:
+    - swapfile
+    - swap.img
+
+- name: Add apt signing keys for CRI and Kubernetes
+  apt_key:
+    url: "{{ item }}"
+    state: present
+  loop: "{{ apt_key_urls }}"
+  when: ansible_distribution == 'Ubuntu'
+
+
+- name: Add apt repository for CRI and Kubernetes
+  apt_repository:
+    repo: "{{ item.repo }}"
+    state: present
+    filename: "{{ item.filename }}"
+  loop: "{{ apt_repositories }}"
+  when: ansible_distribution == 'Ubuntu'
+
+
+- name: Install CRI and Kubernetes apt packages
+  apt:
+    state: present
+    update_cache: yes
+    pkg: "{{ kubernetes_packages }}"
+  notify:
+    - restart crio
+    - restart kubelet
+  when: ansible_distribution == 'Ubuntu'
+
+- name: Install system packages updates
+  apt:
+    upgrade: dist
+    update_cache: no
+    autoclean: yes
+    autoremove: yes
+  notify: reboot node
+  when:
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - system_update
+    - never
+
+- name: Reboot if packages upgraded
+  meta: flush_handlers
+
+- name: Hold CRI and Kubernetes packages
+  dpkg_selections:
+    name: '{{ item }}'
+    selection: hold
+  with_items:
+    - '{{ kubernetes_hold_packages }}'
+  when: ansible_distribution == 'Ubuntu'
+
+- name: Create directories tree
+  file:
+    path: '/{{ item.path }}'
+    state: directory
+  with_filetree:
+    - templates/
+  when: item.state == 'directory'
+
+- name: Copy haproxy config files
+  template:
+    src: '{{ item }}'
+    dest: '/{{ item }}'
+  loop:
+    - "etc/haproxy/haproxy.cfg"
+  notify:
+    - reload haproxy
+
+- name: Copy sysctl config files
+  template:
+    src: '{{ item }}'
+    dest: '/{{ item }}'
+  loop:
+    - "etc/sysctl.d/99-kubernetes-cri.conf"
+  notify:
+    - reload sysctl
+
+- name: Copy crio config files
+  template:
+    src: '{{ item }}'
+    dest: '/{{ item }}'
+  loop:
+    - "etc/modules-load.d/crio.conf"
+  notify:
+    - restart crio
+  
+- name: Enable crio
+  systemd:
+    name: crio
+    state: started
+    enabled: yes
+
+- name: Copy iptables config files
+  template:
+    src: '{{ item }}'
+    dest: '/{{ item }}'
+  loop:
+    - "etc/iptables/rules.v4"
+    - "usr/share/netfilter-persistent/plugins.d/15-ip4tables"
+  notify:
+    - reload iptables
+
+- name: Copy kubelet config files
+  template:
+    src: '{{ item }}'
+    dest: '/{{ item }}'
+  loop:
+    - "etc/default/kubelet"
+  notify:
+    - restart kubelet
+  when: ansible_distribution == 'Ubuntu'
+
+- name: Force handlers after system reconfiguration
+  meta: flush_handlers
+
+
+- name: Init cluster only if needed
+  include_tasks: init.yml
+  tags:
+    - never
+    - kube_master_init
+
+- name: Join to cluster only if needed
+  include_tasks: join.yml
+  tags:
+    - never
+    - kube_master_join
+    - kube_node_join
+
+- name: Upgrade only if needed
+  include_tasks: upgrade.yml
+  tags:
+    - never
+    - kube_node_upgrade
+    - kube_master_upgrade_main
+    - kube_master_upgrade_secondary
+
+- name: Get nodes list
+  block:
+    - name: Try to get nodes list
+      delegate_to: "{{ groups['kubernetes_master'][0] }}"
+      command: >
+        kubectl get nodes
+        --kubeconfig='{{ kubernetes_kubectl_config | default("") | expanduser }}'
+        -o jsonpath="{.items[*].metadata.name}"
+      register: node_list
+      tags:
+        - kube_node_label
+      changed_when: false
+  rescue:
+   - name: Set empty node list
+     set_fact:
+       node_list:
+          stdout: ""
+
+- name: Make incluster-only changes
+  when: "hostname in node_list.stdout.split(' ')"
+  tags:
+    - kube_master_join
+    - kube_node_join
+    - kube_node_label
+  block:
+    - name: Populate inventory node labels
+      set_fact:
+        inventory_node_labels: "{{ inventory_node_labels + [ '%s=%s'|format(item.key, item.get('value','')) | replace('None','')] }}"
+      loop: "{{ kubernetes_node_labels | d({}) | dict2items }}"
+      ignore_errors: '{{ ansible_check_mode }}'
+      when:
+        - kubernetes_node_labels is defined
+        - kubernetes_node_labels is mapping
+
+    - name: Set labels to node
+      command: >
+        kubectl label node {{ hostname }} {{ item }}
+        --overwrite=true
+        --kubeconfig='{{ kubernetes_kubectl_config | default("") | expanduser }}'
+        --server='{{ kubernetes_kubectl_host | default("") }}'
+      delegate_to: "{{ groups['kubernetes_master'][0] }}"
+      loop: "{{ inventory_node_labels }}"
+      changed_when: false
+
+    - name: Populate inventory node taints
+      set_fact:
+        inventory_node_taints: "{{ inventory_node_taints + [ '%s=%s:%s' | format(item.key, item.get('value',''), item.effect) ] }}"
+      loop: "{{ kubernetes_node_taints | d([]) }}"
+      ignore_errors: '{{ ansible_check_mode }}'
+      when:
+        - kubernetes_node_taints is defined
+
+    - name: Set taints to node
+      command: >
+        kubectl taint node {{ hostname }} {{ item }}
+        --overwrite=true
+        --kubeconfig='{{ kubernetes_kubectl_config | default("") | expanduser }}'
+        --server='{{ kubernetes_kubectl_host | default("") }}'
+      delegate_to: "{{ groups['kubernetes_master'][0] }}"
+      loop: "{{ inventory_node_taints }}"
+      changed_when: false

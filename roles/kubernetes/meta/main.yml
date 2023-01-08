@@ -1,0 +1,15 @@
+---
+
+galaxy_info:
+  author: asakharov
+  description: Kubernetes role
+  min_ansible_version: 2.5
+
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+
+  galaxy_tags: []
+
+dependencies: []

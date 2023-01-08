@@ -1,0 +1,40 @@
+#!/bin/sh
+
+
+set -e
+
+rc=0
+
+load_rules()
+{
+	#load IPv4 rules
+	if [ ! -f /etc/iptables/rules.v4 ]; then
+		echo "Warning: skipping IPv4 (no rules to load)"
+	else
+		/sbin/iptables-restore --noflush  < /etc/iptables/rules.v4 2> /dev/null
+		if [ $? -ne 0 ]; then
+			rc=1
+		fi
+	fi
+}
+
+case "$1" in
+start|restart|reload|force-reload)
+	load_rules
+	;;
+save)
+	save_rules
+	;;
+stop)
+	echo "Automatic flushing disabled, use \"flush\" instead of \"stop\""
+	;;
+flush)
+	flush_rules
+	;;
+*)
+    echo "Usage: $0 {start|restart|reload|force-reload|save|flush}" >&2
+    exit 1
+    ;;
+esac
+
+exit $rc
