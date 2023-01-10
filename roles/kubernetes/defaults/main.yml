@@ -1,13 +1,13 @@
 ---
 
 # current kubernetes installation
-kubernetes_version: "1.18.8"
-kubernetes_package_version: "1.18.8-00"
+kubernetes_version: "1.24.9"
+kubernetes_package_version: "1.24.9-00"
 
 # if upgrading, change this to new version (to safely update only required packages)
 # after upgrading everything, change versions above too
-kubernetes_upgrade_version: "1.18.8"
-kubernetes_upgrade_package_version: "1.18.8-00"
+kubernetes_upgrade_version: "1.24.9"
+kubernetes_upgrade_package_version: "1.24.9-00"
 
 kubernetes_packages:
   - cri-o

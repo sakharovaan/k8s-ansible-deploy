@@ -25,7 +25,6 @@ apiServer:
     http2-max-streams-per-connection: "1000"
     enable-admission-plugins: "PodTolerationRestriction,PodNodeSelector,NodeRestriction"
     service-cluster-ip-range: "{{ kubernetes_service_subnet | d("10.96.0.0/12") }}"
-    target-ram-mb: "{{ kubernetes_apiserver_target_ram_mb }}"
   certSANs:
 {% for san in cert_sans %}
   - {{ san }}

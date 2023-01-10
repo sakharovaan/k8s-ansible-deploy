@@ -2,7 +2,7 @@
 
 ## Инициализация среды
 
-1. Перед началом установить python 3.9
+1. Перед началом установить python 3.8
 2. Скопировать ansible.example.cfg в ansible.cfg
 ```
 sudo pip3 install pipenv
@@ -50,15 +50,3 @@ pipenv shell
 3. Для обновления остальных мастер-нод: `ansible-playbook site.yml -l kube-sec-master -t kube_master_upgrade_secondary -vD`
 4. Для обновления рабочих нод: `ansible-playbook site.yml -l kube-worker -t kube_node_upgrade -vD`
 5. После обновления версию в переменных kubernetes_(package_)version сделать такой же как в kubernetes_upgrade_(package_)version 
-
-### Ускорение работы с помощью mitogen
-
-1. Раскомментировать строки в ansible.cfg
-```ini
-strategy_plugins = /home/user/ansible_mitogen/plugins/strategy
-strategy = mitogen_linear
-```
-2. Указать в strategy_plugins путь до папки mitogen, например с помощью команды из-под оболочки pipenv shell:
-`echo $(command -v 'python') | sed 's:bin\/python:lib\/python3.6\/site-packages\/ansible_mitogen\/plugins/\strategy:g'`
-
-Либо склонировать репозиторий https://github.com/dw/mitogen и указать путь к папке `ansible_mitogen/plugins` внутри репозитория

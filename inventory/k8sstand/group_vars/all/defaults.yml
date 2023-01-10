@@ -10,4 +10,4 @@ cert_sans:
 kubernetes_kubectl_config: "/etc/kubernetes/admin.conf"
 
 ansible_user: user
-ansible_become_password: admin
+ansible_become_password: adminadmin
